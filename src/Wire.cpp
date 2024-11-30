@@ -57,6 +57,8 @@ bool Wire::begin()
         // Enable I2C interrupts after initialization
         enableI2CInterrupts();
     #endif
+		
+		return true;
 }
 
 bool Wire::setClock(uint32_t clock)
