@@ -4,52 +4,32 @@
 
 #include "Wire.h"
 
-Wire::Wire(I2C_HandleTypeDef *i2cHandle)
+TwoWire::TwoWire(I2C_HandleTypeDef *i2cHandle)
     : _hi2c(i2cHandle), _rxIndex(0), _rxLength(0), _txIndex(0), _txLength(0), _txAddress(0), _transmitting(0) 
 {
-    errorMessage = "";
-}
-
-Wire::Wire()
-{
-
     _rxIndex = 0;
     _rxLength = 0;
     _txIndex = 0;
     _txLength = 0;
     _txAddress = 0;
     _transmitting = 0;
-
+    _timeout = HAL_MAX_DELAY;
+    _timeoutFlag = false;
+    _reset_with_timeout = false;
     errorMessage = "";
-
-    _hi2c->Instance = I2C1; // Use I2C1 peripheral
-    _hi2c->Init.ClockSpeed = 100000; // Standard Mode (100 kHz)
-    _hi2c->Init.DutyCycle = I2C_DUTYCYCLE_2; // It has no effect in Standard Mode (100 kHz)
-    _hi2c->Init.OwnAddress1 = 0; // primary address of the STM32 I2C peripheral when it operates as a slave device. Setting OwnAddress1 = 0 means:The STM32 will not have a valid slave address assigned.
-    _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT; // 7-bit addressing
-    _hi2c->Init.DualAddressMode = I2C_DUALADDRESS_DISABLE; // Single address mode
-    _hi2c->Init.OwnAddress2 = 0; // secondary slave address for the I2C peripheral when it operates as a slave device.
-    _hi2c->Init.GeneralCallMode = I2C_GENERALCALL_DISABLE; // No general call
-    _hi2c->Init.NoStretchMode = I2C_NOSTRETCH_DISABLE; // Enable clock stretching
-
-    #if UNDER_DEVELOP
-        // Enable I2C interrupts by default
-        enableI2CInterrupts();
-    #endif
 }
 
-bool Wire::begin() 
+bool TwoWire::begin() 
 {
-
     if (_hi2c == nullptr) 
     {
-        errorMessage = "Error Wire: The I2C handle instance is null.";
+        errorMessage = "Error TwoWire: The I2C handle instance is null.";
         return false;
     }
 
     if (HAL_I2C_Init(_hi2c) != HAL_OK)
     {
-        errorMessage = "Error Wire: The HAL_I2C_Init() is not succeeded.";
+        errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";
         return false;
     }
 
@@ -58,10 +38,44 @@ bool Wire::begin()
         enableI2CInterrupts();
     #endif
 		
-		return true;
+    return true;
 }
 
-bool Wire::setClock(uint32_t clock)
+bool TwoWire::begin(uint8_t address)
+{
+    if (_hi2c == nullptr) 
+    {
+        errorMessage = "Error TwoWire: The I2C handle instance is null.";
+        return false;
+    }
+
+    _hi2c->Init.OwnAddress1 = address;
+    _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+
+    if (HAL_I2C_Init(_hi2c) != HAL_OK)
+    {
+        errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";
+        return false;
+    }
+
+    return true;
+}
+
+bool TwoWire::end(void)
+{
+    // Disable the I2C peripheral
+    __HAL_I2C_DISABLE(_hi2c);
+
+    // Deinitialize the I2C peripheral
+    if (HAL_I2C_DeInit(_hi2c) != HAL_OK)
+    {
+        errorMessage = "Error TwoWire: end() is not succeeded.";
+        return false;
+    }
+    return true;
+}
+
+bool TwoWire::setClock(uint32_t clock)
 {
     if(!((clock == 100000) || (clock == 400000)))
     {
@@ -73,7 +87,7 @@ bool Wire::setClock(uint32_t clock)
     return true;
 }
 
-void Wire::beginTransmission(uint8_t address) 
+void TwoWire::beginTransmission(uint8_t address) 
 {
     // indicate that we are transmitting
     _transmitting = 1;
@@ -85,20 +99,10 @@ void Wire::beginTransmission(uint8_t address)
     _txLength = 0;
 }
 
-bool Wire::endTransmission() 
+uint8_t TwoWire::endTransmission() 
 {
-    if (_transmitting == 0) 
-    {
-        errorMessage = "Error Wire: No data to send.";
-        return false;  // Error: Nothing to send
-    }
-
     // Send the data in the txBuffer
-    if (HAL_I2C_Master_Transmit(_hi2c, _txAddress, _txBuffer, _txLength, HAL_MAX_DELAY) != HAL_OK) 
-    {
-        errorMessage = "Error Wire: Transmission failed.";
-        return false;  // Error in transmission
-    }
+    HAL_StatusTypeDef ret = HAL_I2C_Master_Transmit(_hi2c, _txAddress, _txBuffer, _txLength, _timeout);
 
     #if UNDER_DEVELOP
         if (HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer, _txLength) != HAL_OK)
@@ -113,10 +117,45 @@ bool Wire::endTransmission()
     _txLength = 0;
     _transmitting = 0;
 
-    return true;  // Success
+    // Map HAL return status to detailed codes
+    if (ret == HAL_OK)
+    {
+        return 0; // Success
+    }
+    else if (ret == HAL_TIMEOUT)
+    {
+        if(_reset_with_timeout == true)
+        {
+            recovery();
+        }
+        _timeoutFlag = true;
+        return 5; // Timeout
+    }
+    else if (ret == HAL_ERROR)
+    {
+        // Distinguish between NACK errors and other errors
+        if (_hi2c->ErrorCode & HAL_I2C_ERROR_AF)
+        {
+            // NACK during address or data phase
+            if (_txIndex == 0)
+            {
+                return 2; // NACK on transmit of address
+            }
+            else
+            {
+                return 3; // NACK on transmit of data
+            }
+        }
+        else
+        {
+            return 4; // Other error
+        }
+    }
+
+    return 0;  // Success
 }
 
-bool Wire::requestFrom(uint8_t address, uint8_t quantity) 
+uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity) 
 {
     _rxIndex = 0;
     _rxLength = 0;
@@ -124,12 +163,11 @@ bool Wire::requestFrom(uint8_t address, uint8_t quantity)
     // Limit the requested quantity to the buffer size
     if (quantity > WIRE_BUFFER_LENGTH) 
     {
-        errorMessage = "Error Wire: The quantity of requestFrom is more than max buffer length.";
-        return false;
+        quantity = WIRE_BUFFER_LENGTH;
     }
 
     // Request data from the I2C device
-    if (HAL_I2C_Master_Receive(_hi2c, (address << 1), _rxBuffer, quantity, HAL_MAX_DELAY) == HAL_OK) 
+    if (HAL_I2C_Master_Receive(_hi2c, (address << 1), _rxBuffer, quantity, _timeout) == HAL_OK) 
     {
         _rxLength = quantity;
     }
@@ -149,7 +187,7 @@ bool Wire::requestFrom(uint8_t address, uint8_t quantity)
     return true;  
 }
 
-bool Wire::write(uint8_t data) 
+uint8_t TwoWire::write(uint8_t data) 
 {
     if(_transmitting)
     {
@@ -157,8 +195,8 @@ bool Wire::write(uint8_t data)
         // don't bother if buffer is full
         if(_txLength >= WIRE_BUFFER_LENGTH)
         {
-            errorMessage = "Error Wire: Write() is not succeeded.";
-            return false;
+            errorMessage = "Error TwoWire: Write() is not succeeded.";
+            return 0;
         }
         // put byte in tx buffer
         _txBuffer[_txIndex] = data;
@@ -168,36 +206,39 @@ bool Wire::write(uint8_t data)
     }
     else
     {
-        return false;
+        // slave mode
     }
 
-  return true;
+  return 1;
 }
 
-bool Wire::write(const uint8_t* data, size_t length) 
+uint8_t TwoWire::write(const uint8_t* data, size_t quantity) 
 {
     if(_transmitting)
     {
         // in master transmitter mode
-        for(size_t i = 0; i < length; ++i)
+        for(size_t i = 0; i < quantity; ++i)
         {
-            write(data[i]);
+            if(write(data[i]) == 0)
+            {
+                return i;
+            }
         }
     }
     else
     {
-        return false;
+        // slave mode
     }
 
-    return true;
+    return quantity;
 }
 
-int Wire::available() 
+int TwoWire::available() 
 {
     return _rxLength - _rxIndex;
 }
 
-int Wire::read() 
+int TwoWire::read() 
 {
     if (_rxIndex < _rxLength) 
     {
@@ -206,7 +247,30 @@ int Wire::read()
     return -1;  // No data left to read
 }
 
-void Wire::clearBuffers()
+void TwoWire::recovery(void)
+{
+    HAL_I2C_DeInit(_hi2c);
+    HAL_I2C_Init(_hi2c);
+    _timeoutFlag = false;
+}
+
+void TwoWire::clearWireTimeoutFlag(void)
+{
+    _timeoutFlag = false;
+}
+
+bool TwoWire::getWireTimeoutFlag(void)
+{
+    return _timeoutFlag;
+}
+
+void TwoWire::setWireTimeout(uint32_t timeout, bool reset_with_timeout)
+{
+    _reset_with_timeout = reset_with_timeout;
+    _timeout = timeout;
+}
+
+void TwoWire::clearBuffers()
 {
     memset(_rxBuffer, 0, sizeof(_rxBuffer));
     memset(_txBuffer, 0, sizeof(_txBuffer));
@@ -224,14 +288,14 @@ void Wire::clearBuffers()
 
 #if UNDER_DEVELOP
 
-    void Wire::enableI2CInterrupts()
+    void TwoWire::enableI2CInterrupts()
     {
         // Enable the I2C interrupt for the corresponding I2C peripheral
         HAL_NVIC_EnableIRQ(I2C1_EV_IRQn);  // Change to the correct I2C interrupt number for your device (I2C1_EV_IRQn in this case)
         HAL_NVIC_EnableIRQ(I2C1_ER_IRQn);  // Enable error interrupt for I2C
     }
 
-    void Wire::disableI2CInterrupts()
+    void TwoWire::disableI2CInterrupts()
     {
         HAL_NVIC_DisableIRQ(I2C1_EV_IRQn);  // Disable the event interrupt
         HAL_NVIC_DisableIRQ(I2C1_ER_IRQn);  // Disable the error interrupt

@@ -29,9 +29,9 @@
 // ##############################################################################################
 
 /**
- * @class Wire
+ * @class TwoWire
  */
-class Wire 
+class TwoWire 
 {
 public:
 
@@ -47,23 +47,31 @@ public:
      * 
      * @note - The GPIO I2C peripheral configurations must be set outside of the Wire class.
      */
-    Wire(I2C_HandleTypeDef *i2cHandle);
+    TwoWire(I2C_HandleTypeDef *i2cHandle);
 
     /**
-     * @brief Constructor.
-     * @note - The default instance of i2cHandle is I2C1.
-     * 
-     * @note - It is recommended that the I2C1 peripheral be set and initialized outside of the Wire class.
-     * 
-     * @note - The GPIO I2C peripheral configurations must be set outside of the Wire class.
-     */
-    Wire();
-
-    /**
-     * @brief Initialize I2C
+     * @brief Initialize I2C as a master.
+     * @note This function initializes the Wire library and join the I2C bus as a controller or a peripheral. 
+     * This function should normally be called only once.
      * @return true if succeeded.
      */
-    bool begin();           
+    bool begin();     
+
+    /**
+     * @brief Initialize I2C as a slave.
+     * @note This function initializes the Wire library and join the I2C bus as a controller or a peripheral. 
+     * This function should normally be called only once.
+     * @param address: the 7-bit slave address (optional); if not specified, join the bus as a controller device.
+     * @return true if succeeded.
+     */
+    bool begin(uint8_t address);       
+
+    /**
+     * @brief Disables the I2C bus and releases any allocated resources.
+     * Stops the Wire library functions from further use.
+     * @return true if succeeded.
+     */
+    bool end(void);
 
     /**
      * @brief Set Clock speed of i2c prepheral.
@@ -72,32 +80,58 @@ public:
     bool setClock(uint32_t clock);
 
     /**
-     * @brief Start communication with a device
+     * @brief This function begins a transmission to the I2C peripheral device with the given address. 
+     * Subsequently, queue bytes for transmission with the write() function and transmit them by calling endTransmission().
+     * @param address: the 7-bit address of the device to transmit to.
      *  */                 
     void beginTransmission(uint8_t address); 
 
     /**
-     * @brief End communication and send data to I2C device.
+     * @brief This function ends a transmission to a peripheral device that was begun by beginTransmission() 
+     * and transmits the bytes that were queued by write().
+     * @return 
+     * 0: success.
+     * 
+     * 1: data too long to fit in transmit buffer.
+     * 
+     * 2: received NACK on transmit of address.
+     * 
+     * 3: received NACK on transmit of data.
+     * 
+     * 4: other error.
+     * 
+     * 5: timeout
      */
-    bool endTransmission();               
+    uint8_t endTransmission();               
 
     /**
      * @brief Request data from an I2C device.
-     * @return true if succeeded.
+     * @param address: the 7-bit slave address of the device to request bytes from.
+     * @param quantity: the number of bytes to request.
+     * @note This function is used by the controller device to request bytes from a peripheral device. 
+     * The bytes may then be retrieved with the available() and read() functions. 
+     * @return uint8_t: the number of bytes returned from the peripheral device.
      */
-    bool requestFrom(uint8_t address, uint8_t quantity); 
+    uint8_t requestFrom(uint8_t address, uint8_t quantity); 
 
     /**
-     * @brief Write a byte
-     * @return true if byte is written successfully.
+     * @brief Write a byte.
+     * @param data: a value to send as a single byte.
+     * @note This function writes data from a peripheral device in response to a request from a controller device, 
+     * or queues bytes for transmission from a controller to peripheral device (in-between calls to beginTransmission() and endTransmission()).
+     * @return The number of bytes written (reading this number is optional).
      */
-    bool write(uint8_t data);              
+    uint8_t write(uint8_t data);              
 
     /**
      * @brief Write multiple bytes
-     * @return true if all bytes are written successfully.
+     * @param data: a value to send as a single byte.
+     * @param quantity: the number of bytes to transmit.
+     * @note This function writes data from a peripheral device in response to a request from a controller device, 
+     * or queues bytes for transmission from a controller to peripheral device (in-between calls to beginTransmission() and endTransmission()).
+     * @return The number of bytes written (reading this number is optional).
      */
-    bool write(const uint8_t* data, size_t length); 
+    uint8_t write(const uint8_t* data, size_t quantity); 
 
     /**
      * @brief Check how many bytes are available to read
@@ -109,7 +143,36 @@ public:
      * @brief Read a byte
      * @return int The byte value or -1 if no data is available.
      *  */          
-    int read();       
+    int read();   
+
+    /**
+     * @brief Deinit and init i2c phrepheral for recovery i2c if nedded.
+     */
+    void recovery(void);   
+
+    /**
+     * @brief Sets the timeout for Wire transmissions in master mode.
+     * @param timeout a timeout: timeout in milliseconds, if zero then timeout checking is disabled
+     * @param reset_on_timeout: if true then Wire hardware will be automatically reset on timeout
+     * @note these timeouts are almost always an indication of an underlying problem, such as misbehaving devices, noise, 
+     * insufficient shielding, or other electrical problems. These timeouts will prevent your sketch from locking up, 
+     * but not solve these problems. In such situations there will often (also) be data corruption which doesn’t result 
+     * in a timeout or other error and remains undetected. So when a timeout happens, 
+     * it is likely that some data previously read or written is also corrupted. 
+     * Additional measures might be needed to more reliably detect such issues (e.g. checksums or reading back written values) 
+     * and recover from them (e.g. full system reset). This timeout and such additional measures should be seen as a last line 
+     * of defence, when possible the underlying cause should be fixed instead.
+     */
+    void setWireTimeout(uint32_t timeout, bool reset_with_timeout);
+
+    /**
+     * @brief Get wire timeout flag.
+     */
+    bool getWireTimeoutFlag(void);
+    /**
+     * @brief Clear timeout flag.
+     */
+    void clearWireTimeoutFlag(void);
 
     #if UNDER_DEVELOP
 
@@ -181,6 +244,11 @@ private:
     /// @brief Transmission status flag
     uint8_t _transmitting;     
 
+    uint32_t _timeout;
+
+    bool _reset_with_timeout;
+
+    bool _timeoutFlag;
 
     #ifdef UNDER_DEVELOP
         /**
