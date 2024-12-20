@@ -1,8 +1,8 @@
 #pragma once
 
 // Define the target MCU family here
-#define STM32F4
-// #define STM32F1
+// #define STM32F4
+#define STM32F1
 // #define STM32H7
 
 // ###############################################################################################
@@ -17,12 +17,15 @@
 #endif
 
 #include <string>
-// #include <inttypes.h>
 
 // ###############################################################################################
 // Define Global Macros:
 
 #define WIRE_BUFFER_LENGTH 32  // Buffer size for data transfer
+
+#define WIRE_MODE_BLOCK         0
+#define WIRE_MODE_INTERRUPT     1
+#define WIRE_MODE_DMA			2
 
 // #define UNDER_DEVELOP
 
@@ -76,6 +79,7 @@ public:
     /**
      * @brief Set Clock speed of i2c prepheral.
      * @return true if succeeded.
+     * @warning Use this function before begin method.
      */
     bool setClock(uint32_t clock);
 
@@ -103,6 +107,22 @@ public:
      * 5: timeout
      */
     uint8_t endTransmission();               
+
+    /**
+     * @brief Set I2C transmit mode that can be Block mode, Interrupt mode, DMA mode.
+     * @param mode: Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
+     * @return true if succeeded.
+     * @warning TxMode should be set before calling the begin() method.
+     */
+    bool setTxMode(uint8_t mode);
+
+    /**
+     * @brief Set I2C receive mode that can be Block mode, Interrupt mode, DMA mode.
+     * @param mode: Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
+     * @return true if succeeded.
+     * @warning RxMode should be set before calling the begin() method.
+     */
+    bool setRxMode(uint8_t mode);
 
     /**
      * @brief Request data from an I2C device.
@@ -169,19 +189,21 @@ public:
      * @brief Get wire timeout flag.
      */
     bool getWireTimeoutFlag(void);
+
     /**
      * @brief Clear timeout flag.
      */
     void clearWireTimeoutFlag(void);
 
-    #if UNDER_DEVELOP
+    void masterTxCpltCallback(void);
 
-    /**
-     * @brief Initialize I2C in Slave Mode with a specified address.
-     * @param address The I2C address for the slave device.
-     * @return true if succeeded.
-     */
-    bool beginSlave(uint8_t address); 
+    void masterRxCpltCallback(void);
+
+    void slaveTxCpltCallback(void);
+
+    void slaveRxCpltCallback(void);
+
+    void slaveAddrCallback(void);
 
     /**
      * @brief Start receiving data as a slave.
@@ -210,8 +232,6 @@ public:
      * @return The byte of data read, or -1 if no data available.
      */
     int readSlave();
-
-    #endif                       
 
 private:
 
@@ -250,24 +270,39 @@ private:
 
     bool _timeoutFlag;
 
-    #ifdef UNDER_DEVELOP
-        /**
-         * @brief Slave address for I2C communication.
-         */
-        uint8_t _slaveAddress;
-        // Add flags for slave interrupts
-        uint8_t _slaveRxCompleteFlag;
-        uint8_t _slaveTxCompleteFlag;
-        uint8_t _slaveBuffer[WIRE_BUFFER_LENGTH]; // Slave data buffer
+    /**
+     * @brief Slave address for I2C communication.
+     */
+    uint8_t _slaveAddress;
 
-        // Interrupt flags
-        volatile uint8_t _txCompleteFlag; ///< TX complete flag
-        volatile uint8_t _rxCompleteFlag; ///< RX complete flag
+    // Add flags for slave interrupts
+    volatile bool _slaveRxCompleteFlag;
 
-        void enableI2CInterrupts(); ///< Enable I2C interrupts
-        void disableI2CInterrupts(); ///< Disable I2C interrupts
-    #endif
+    volatile bool _slaveTxCompleteFlag;
+
+    uint8_t _slaveBuffer[WIRE_BUFFER_LENGTH]; // Slave data buffer
+
+    // Interrupt flags
+    volatile bool _txCompleteFlag; ///< TX complete flag
+
+    volatile bool _rxCompleteFlag; ///< RX complete flag
+
+    /**
+     * @brief I2C transmit mode that can be Block mode, Interrupt mode, DMA mode.
+     * @note - Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
+     * @return true if succeeded.
+     */
+    volatile uint8_t _txMode;
+
+    /**
+     * @brief I2C receive mode that can be Block mode, Interrupt mode, DMA mode.
+     * @note - Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
+     * @return true if succeeded.
+     */
+    volatile uint8_t _rxMode;
 
     /// @brief Clears the send and receive buffers 
     void clearBuffers();         
 };
+
+
