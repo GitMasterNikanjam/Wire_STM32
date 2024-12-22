@@ -33,6 +33,7 @@
 
 /**
  * @class TwoWire
+ * @brief This class can handle I2C high level communication.
  */
 class TwoWire 
 {
@@ -84,11 +85,68 @@ public:
     bool setClock(uint32_t clock);
 
     /**
+     * @brief Set I2C transmit mode that can be Block mode, Interrupt mode, DMA mode.
+     * @param mode: Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
+     * @return true if succeeded.
+     * @warning TxMode should be set before calling the begin() method.
+     */
+    bool setTxMode(uint8_t mode);
+
+    /**
+     * @brief Set I2C receive mode that can be Block mode, Interrupt mode, DMA mode.
+     * @param mode: Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
+     * @return true if succeeded.
+     * @warning RxMode should be set before calling the begin() method.
+     */
+    bool setRxMode(uint8_t mode);
+
+    /**
+     * @brief Sets the timeout for Wire transmissions in master mode.
+     * @param timeout a timeout: timeout in milliseconds, if zero then timeout checking is disabled
+     * @param resetWithTimeout: if true then Wire hardware will be automatically reset on timeout
+     * @note these timeouts are almost always an indication of an underlying problem, such as misbehaving devices, noise, 
+     * insufficient shielding, or other electrical problems. These timeouts will prevent your sketch from locking up, 
+     * but not solve these problems. In such situations there will often (also) be data corruption which doesn’t result 
+     * in a timeout or other error and remains undetected. So when a timeout happens, 
+     * it is likely that some data previously read or written is also corrupted. 
+     * Additional measures might be needed to more reliably detect such issues (e.g. checksums or reading back written values) 
+     * and recover from them (e.g. full system reset). This timeout and such additional measures should be seen as a last line 
+     * of defence, when possible the underlying cause should be fixed instead.
+     */
+    void setWireTimeout(uint32_t timeout, bool resetWithTimeout = false);
+
+    /**
+     * @brief Get wire timeout flag.
+     */
+    bool getWireTimeoutFlag(void);
+
+    /**
      * @brief This function begins a transmission to the I2C peripheral device with the given address. 
      * Subsequently, queue bytes for transmission with the write() function and transmit them by calling endTransmission().
      * @param address: the 7-bit address of the device to transmit to.
+     * @return true if succeeded.
+     * @return False if the previous transmission has not completed yet.
      *  */                 
-    void beginTransmission(uint8_t address); 
+    bool beginTransmission(uint8_t address); 
+
+    /**
+     * @brief Write a byte.
+     * @param data: a value to send as a single byte.
+     * @note This function writes data from a peripheral device in response to a request from a controller device, 
+     * or queues bytes for transmission from a controller to peripheral device (in-between calls to beginTransmission() and endTransmission()).
+     * @return The number of bytes written (reading this number is optional).
+     */
+    uint8_t write(uint8_t data);              
+
+    /**
+     * @brief Write multiple bytes
+     * @param data: a value to send as a single byte.
+     * @param quantity: the number of bytes to transmit.
+     * @note This function writes data from a peripheral device in response to a request from a controller device, 
+     * or queues bytes for transmission from a controller to peripheral device (in-between calls to beginTransmission() and endTransmission()).
+     * @return The number of bytes written (reading this number is optional).
+     */
+    uint8_t write(const uint8_t* data, uint8_t quantity); 
 
     /**
      * @brief This function ends a transmission to a peripheral device that was begun by beginTransmission() 
@@ -109,22 +167,6 @@ public:
     uint8_t endTransmission();               
 
     /**
-     * @brief Set I2C transmit mode that can be Block mode, Interrupt mode, DMA mode.
-     * @param mode: Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
-     * @return true if succeeded.
-     * @warning TxMode should be set before calling the begin() method.
-     */
-    bool setTxMode(uint8_t mode);
-
-    /**
-     * @brief Set I2C receive mode that can be Block mode, Interrupt mode, DMA mode.
-     * @param mode: Can be 0: Block mode, 1: Interrupt mode, 3: DMA mode.
-     * @return true if succeeded.
-     * @warning RxMode should be set before calling the begin() method.
-     */
-    bool setRxMode(uint8_t mode);
-
-    /**
      * @brief Request data from an I2C device.
      * @param address: the 7-bit slave address of the device to request bytes from.
      * @param quantity: the number of bytes to request.
@@ -133,25 +175,6 @@ public:
      * @return uint8_t: the number of bytes returned from the peripheral device.
      */
     uint8_t requestFrom(uint8_t address, uint8_t quantity); 
-
-    /**
-     * @brief Write a byte.
-     * @param data: a value to send as a single byte.
-     * @note This function writes data from a peripheral device in response to a request from a controller device, 
-     * or queues bytes for transmission from a controller to peripheral device (in-between calls to beginTransmission() and endTransmission()).
-     * @return The number of bytes written (reading this number is optional).
-     */
-    uint8_t write(uint8_t data);              
-
-    /**
-     * @brief Write multiple bytes
-     * @param data: a value to send as a single byte.
-     * @param quantity: the number of bytes to transmit.
-     * @note This function writes data from a peripheral device in response to a request from a controller device, 
-     * or queues bytes for transmission from a controller to peripheral device (in-between calls to beginTransmission() and endTransmission()).
-     * @return The number of bytes written (reading this number is optional).
-     */
-    uint8_t write(const uint8_t* data, size_t quantity); 
 
     /**
      * @brief Check how many bytes are available to read
@@ -171,38 +194,38 @@ public:
     void recovery(void);   
 
     /**
-     * @brief Sets the timeout for Wire transmissions in master mode.
-     * @param timeout a timeout: timeout in milliseconds, if zero then timeout checking is disabled
-     * @param reset_on_timeout: if true then Wire hardware will be automatically reset on timeout
-     * @note these timeouts are almost always an indication of an underlying problem, such as misbehaving devices, noise, 
-     * insufficient shielding, or other electrical problems. These timeouts will prevent your sketch from locking up, 
-     * but not solve these problems. In such situations there will often (also) be data corruption which doesn’t result 
-     * in a timeout or other error and remains undetected. So when a timeout happens, 
-     * it is likely that some data previously read or written is also corrupted. 
-     * Additional measures might be needed to more reliably detect such issues (e.g. checksums or reading back written values) 
-     * and recover from them (e.g. full system reset). This timeout and such additional measures should be seen as a last line 
-     * of defence, when possible the underlying cause should be fixed instead.
-     */
-    void setWireTimeout(uint32_t timeout, bool reset_with_timeout);
-
-    /**
-     * @brief Get wire timeout flag.
-     */
-    bool getWireTimeoutFlag(void);
-
-    /**
      * @brief Clear timeout flag.
      */
     void clearWireTimeoutFlag(void);
 
+    /**
+     * @brief Interrupt callback function for masterTxCpltCallback
+     * @note Use this function inside global I2C masterTxCpltCallback
+     */
     void masterTxCpltCallback(void);
 
+    /**
+     * @brief Interrupt callback function for masterRxCpltCallback
+     * @note Use this function inside global I2C masterRxCpltCallback
+     */
     void masterRxCpltCallback(void);
 
+    /**
+     * @brief Interrupt callback function for slaveTxCpltCallback
+     * @note Use this function inside global I2C slaveTxCpltCallback
+     */
     void slaveTxCpltCallback(void);
 
+    /**
+     * @brief Interrupt callback function for slaveRxCpltCallback
+     * @note Use this function inside global I2C slaveRxCpltCallback
+     */
     void slaveRxCpltCallback(void);
 
+    /**
+     * @brief Interrupt callback function for slaveAddrCallback
+     * @note Use this function inside global I2C slaveAddrCallback
+     */
     void slaveAddrCallback(void);
 
     /**
@@ -233,6 +256,18 @@ public:
      */
     int readSlave();
 
+    /// @brief Return interrupt txCompleteFlag
+    bool getTxCompleteFlag(void) { return _txCompleteFlag;};
+
+    /// @brief Return interrupt rxCompleteFlag
+    bool getRxCompleteFlag(void) { return _rxCompleteFlag;};
+
+    /// @brief Return interrupt slaveTxCompleteFlag
+    bool getSlaveTxCompleteFlag(void) { return _slaveTxCompleteFlag;};
+
+    /// @brief Return interrupt slaveRxCompleteFlag
+    bool getSlaveRxCompleteFlag(void) { return _slaveRxCompleteFlag;};
+
 private:
 
     /**
@@ -256,36 +291,42 @@ private:
     uint8_t _rxLength; 
 
     /// @brief Length of send data  
-    uint8_t _txLength;        
-
-    /// @brief Address of the target device              
-    uint8_t _txAddress;      
+    uint8_t _txLength;              
 
     /// @brief Transmission status flag
     uint8_t _transmitting;     
 
+    /// @brief The flag that enable/disable recovery i2c if timeout occured. A value of true means i2c recovery after timeout occurred.
+    bool _resetWithTimeout;
+
+    /// @brief The timeout value for i2c communication. [ms]
     uint32_t _timeout;
 
-    bool _reset_with_timeout;
-
+    /// @brief The timeout event flag.
     bool _timeoutFlag;
+
+    /// @brief Address of the target device              
+    uint8_t _txAddress;
 
     /**
      * @brief Slave address for I2C communication.
      */
     uint8_t _slaveAddress;
 
-    // Add flags for slave interrupts
+    /// @brief The flag for TX master interrupt
+    volatile bool _txCompleteFlag;
+
+    /// @brief The flag for RX master interrupt
+    volatile bool _rxCompleteFlag; 
+
+    /// @brief The flag for RX slave interrupt
     volatile bool _slaveRxCompleteFlag;
 
+    /// @brief The flag for TX slave interrupt
     volatile bool _slaveTxCompleteFlag;
 
-    uint8_t _slaveBuffer[WIRE_BUFFER_LENGTH]; // Slave data buffer
-
-    // Interrupt flags
-    volatile bool _txCompleteFlag; ///< TX complete flag
-
-    volatile bool _rxCompleteFlag; ///< RX complete flag
+    /// @brief Slave data buffer
+    uint8_t _slaveBuffer[WIRE_BUFFER_LENGTH]; 
 
     /**
      * @brief I2C transmit mode that can be Block mode, Interrupt mode, DMA mode.
@@ -302,7 +343,9 @@ private:
     volatile uint8_t _rxMode;
 
     /// @brief Clears the send and receive buffers 
-    void clearBuffers();         
+    void _clearBuffers();         
 };
+
+
 
 

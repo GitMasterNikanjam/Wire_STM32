@@ -12,10 +12,15 @@ TwoWire::TwoWire(I2C_HandleTypeDef *i2cHandle)
     _txIndex = 0;
     _txLength = 0;
     _txAddress = 0;
+    _slaveAddress = 0;
     _transmitting = 0;
     _timeout = HAL_MAX_DELAY;
     _timeoutFlag = false;
-    _reset_with_timeout = false;
+    _resetWithTimeout = false;
+    _txCompleteFlag = true;
+    _rxCompleteFlag = true;
+    _slaveRxCompleteFlag = true;
+    _slaveTxCompleteFlag = true;
     errorMessage = "";
 }
 
@@ -45,8 +50,6 @@ bool TwoWire::begin(uint8_t address)
     }
 
     _slaveAddress = address;
-    _slaveRxCompleteFlag = false;
-    _slaveTxCompleteFlag = false;
 
     _hi2c->Init.OwnAddress1 = address;
     _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -86,44 +89,81 @@ bool TwoWire::setClock(uint32_t clock)
     return true;
 }
 
-void TwoWire::beginTransmission(uint8_t address) 
+bool TwoWire::beginTransmission(uint8_t address) 
 {
+    // Check if transmit channel be free
+    if(_transmitting == 1)
+    {
+        errorMessage = "Error TwoWire: I2C is transmitting. End transmitting before start new transmision.";
+        return false;
+    }
     // indicate that we are transmitting
     _transmitting = 1;
 
     _txAddress = address << 1;  // Convert 7-bit address to HAL-compatible format.
 
     // reset tx buffer iterator vars
-    _txIndex = 0;
-    _txLength = 0;
+    switch (_txMode)
+    {
+    case WIRE_MODE_BLOCK:
+        _txIndex = 0;
+        _txLength = 0;
+        break;
+    case WIRE_MODE_INTERRUPT:
+        if(_txCompleteFlag == true)
+        {
+            _txIndex = 0;
+        }
+        _txLength = 0;
+    break;
+    case WIRE_MODE_DMA:
+
+    break;
+    default:
+        break;
+    }
+
+    return true;
 }
 
 uint8_t TwoWire::endTransmission() 
 {
     HAL_StatusTypeDef ret;
 
+    if(_transmitting == 0)
+    {
+        return 0;
+    }
+
+    _transmitting = 0;
+
     switch(_txMode)
     {
         case WIRE_MODE_BLOCK:
             // Send the data in the txBuffer
             ret = HAL_I2C_Master_Transmit(_hi2c, _txAddress, _txBuffer, _txLength, _timeout);
+            // Reset the state after transmission
+            _txIndex = 0;
+            _txLength = 0;
         break;
         case WIRE_MODE_INTERRUPT:
-            if (HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer, _txLength) != HAL_OK)
+            if(_txCompleteFlag == true)
             {
-                errorMessage = "Error: I2C transmission failed.";
-                return 1;
+                _txCompleteFlag = false;
+                ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer, _txLength);
+                _txLength = 0;
+            }
+            else
+            {
+                _txCompleteFlag = false;
+                ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer + _txIndex - _txLength, _txLength);
+                _txLength = 0;
             }
         break;
         case WIRE_MODE_DMA:
 
         break;
     }
-
-    // Reset the state after transmission
-    _txIndex = 0;
-    _txLength = 0;
-    _transmitting = 0;
 
     // Map HAL return status to detailed codes
     if (ret == HAL_OK)
@@ -132,7 +172,7 @@ uint8_t TwoWire::endTransmission()
     }
     else if (ret == HAL_TIMEOUT)
     {
-        if(_reset_with_timeout == true)
+        if(_resetWithTimeout == true)
         {
             recovery();
         }
@@ -189,18 +229,17 @@ bool TwoWire::setRxMode(uint8_t mode)
 
 uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity) 
 {
-    _rxIndex = 0;
-    _rxLength = 0;
-
-    // Limit the requested quantity to the buffer size
-    if (quantity > WIRE_BUFFER_LENGTH) 
+    // Limit the requested quantity to the empty size space of buffer 
+    if (quantity > (WIRE_BUFFER_LENGTH - _rxLength)) 
     {
-        quantity = WIRE_BUFFER_LENGTH;
+        quantity = (WIRE_BUFFER_LENGTH - _rxLength);
     }
 
     switch(_rxMode)
     {
         case WIRE_MODE_BLOCK:
+            _rxIndex = 0;
+            _rxLength = 0;
             // Request data from the I2C device
             if (HAL_I2C_Master_Receive(_hi2c, (address << 1), _rxBuffer, quantity, _timeout) == HAL_OK) 
             {
@@ -209,14 +248,37 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
             else
             {
                 errorMessage = "Error Wire: The requestFrom() is not succeeded.";
-                return false;
+                return 0;
             }
         break;
         case WIRE_MODE_INTERRUPT:
-            if (HAL_I2C_Master_Receive_IT(_hi2c, (address << 1), _rxBuffer, quantity) != HAL_OK) 
+            if(_rxCompleteFlag == true)
             {
-                errorMessage = "Error: I2C request failed.";
-                return false;
+                _rxIndex = 0;
+                _rxLength = 0;
+                _rxCompleteFlag = false;
+                if (HAL_I2C_Master_Receive_IT(_hi2c, (address << 1), _rxBuffer, quantity) == HAL_OK) 
+                {
+                    _rxLength = quantity;
+                }
+                else
+                {
+                    errorMessage = "Error Wire: The requestFrom() is not succeeded.";
+                    return 0;
+                }
+            }
+            else
+            {
+                _rxCompleteFlag = false;
+                if (HAL_I2C_Master_Receive_IT(_hi2c, (address << 1), _rxBuffer + _rxLength, quantity) == HAL_OK) 
+                {
+                    _rxLength += quantity;
+                }
+                else
+                {
+                    errorMessage = "Error Wire: The requestFrom() is not succeeded.";
+                    return 0;
+                }
             }
         break;
         case WIRE_MODE_DMA:
@@ -224,7 +286,7 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
         break;
     }
 
-    return true;  
+    return quantity;  
 }
 
 uint8_t TwoWire::write(uint8_t data) 
@@ -233,26 +295,27 @@ uint8_t TwoWire::write(uint8_t data)
     {
         // in master transmitter mode
         // don't bother if buffer is full
-        if(_txLength >= WIRE_BUFFER_LENGTH)
+        if(_txIndex >= WIRE_BUFFER_LENGTH)
         {
-            errorMessage = "Error TwoWire: Write() is not succeeded.";
+            errorMessage = "Error TwoWire: Write() is not succeeded. TXbuffer is overflow.";
             return 0;
         }
         // put byte in tx buffer
         _txBuffer[_txIndex] = data;
         ++_txIndex;
-        // update amount in buffer   
-        _txLength = _txIndex;
+        // update amount size length for transmision.   
+        _txLength++;
     }
     else
     {
-        // slave mode
+        errorMessage = "Error TwoWire: Master is not begin transmiting.";
+        return 0;
     }
 
   return 1;
 }
 
-uint8_t TwoWire::write(const uint8_t* data, size_t quantity) 
+uint8_t TwoWire::write(const uint8_t* data, uint8_t quantity) 
 {
     if(_transmitting)
     {
@@ -304,13 +367,13 @@ bool TwoWire::getWireTimeoutFlag(void)
     return _timeoutFlag;
 }
 
-void TwoWire::setWireTimeout(uint32_t timeout, bool reset_with_timeout)
+void TwoWire::setWireTimeout(uint32_t timeout, bool resetWithTimeout)
 {
-    _reset_with_timeout = reset_with_timeout;
+    _resetWithTimeout = resetWithTimeout;
     _timeout = timeout;
 }
 
-void TwoWire::clearBuffers()
+void TwoWire::_clearBuffers()
 {
     memset(_rxBuffer, 0, sizeof(_rxBuffer));
     memset(_txBuffer, 0, sizeof(_txBuffer));
@@ -320,9 +383,12 @@ void TwoWire::clearBuffers()
     _txLength = 0;
     _transmitting = 0;
 
-    _txCompleteFlag = 0;
-    _rxCompleteFlag = 0;
-    
+    _txCompleteFlag = true;
+    _rxCompleteFlag = true;
+    _slaveRxCompleteFlag = true;
+    _slaveTxCompleteFlag = true;
+
+    _timeoutFlag = false;
 }
 
 /**
@@ -330,8 +396,7 @@ void TwoWire::clearBuffers()
  */
 void TwoWire::masterTxCpltCallback(void)
 {
-    TwoWire *wireInstance = reinterpret_cast<TwoWire*>(_hi2c->Instance);
-    wireInstance->_txCompleteFlag = 1;  // Set the transmission flag
+    _txCompleteFlag = true;  // Set the transmission flag
 }
 
 /**
@@ -339,8 +404,7 @@ void TwoWire::masterTxCpltCallback(void)
  */
 void TwoWire::masterRxCpltCallback(void)
 {
-    TwoWire *wireInstance = reinterpret_cast<TwoWire*>(_hi2c->Instance);
-    wireInstance->_rxCompleteFlag = 1;  // Set the reception flag
+    _rxCompleteFlag = true;  // Set the reception flag
 }
 
 
@@ -441,8 +505,7 @@ int TwoWire::readSlave()
  */
 void TwoWire::slaveTxCpltCallback(void)
 {
-    TwoWire *wireInstance = reinterpret_cast<TwoWire*>(_hi2c->Instance);
-    wireInstance->_slaveTxCompleteFlag = 1;  // Set the transmission flag
+    _slaveTxCompleteFlag = true;  // Set the transmission flag
 }
 
 /**
@@ -450,8 +513,7 @@ void TwoWire::slaveTxCpltCallback(void)
  */
 void TwoWire::slaveRxCpltCallback(void)
 {
-    TwoWire *wireInstance = reinterpret_cast<TwoWire*>(_hi2c->Instance);
-    wireInstance->_slaveRxCompleteFlag = 1;  // Set the reception flag
+    _slaveRxCompleteFlag = true;  // Set the reception flag
 }
 
 /**
