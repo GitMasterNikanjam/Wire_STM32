@@ -32,6 +32,7 @@ bool TwoWire::begin()
         return false;
     }
 
+    HAL_I2C_DeInit(_hi2c);
     if (HAL_I2C_Init(_hi2c) != HAL_OK)
     {
         errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";
@@ -54,6 +55,7 @@ bool TwoWire::begin(uint8_t address)
     _hi2c->Init.OwnAddress1 = address;
     _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
 
+    HAL_I2C_DeInit(_hi2c);
     if (HAL_I2C_Init(_hi2c) != HAL_OK)
     {
         errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";
@@ -132,9 +134,15 @@ uint8_t TwoWire::endTransmission()
 
     if(_transmitting == 0)
     {
-        return 0;
+        return 4;
     }
 
+    // if (HAL_I2C_GetState(_hi2c) != HAL_I2C_STATE_READY) 
+    // {
+    //     HAL_I2C_DeInit(_hi2c);
+    //     HAL_I2C_Init(_hi2c);
+    // }
+    
     _transmitting = 0;
 
     switch(_txMode)
@@ -179,7 +187,7 @@ uint8_t TwoWire::endTransmission()
         _timeoutFlag = true;
         return 5; // Timeout
     }
-    else if (ret == HAL_ERROR)
+    else
     {
         // Distinguish between NACK errors and other errors
         if (_hi2c->ErrorCode & HAL_I2C_ERROR_AF)
@@ -235,6 +243,12 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
         quantity = (WIRE_BUFFER_LENGTH - _rxLength);
     }
 
+    // if (HAL_I2C_GetState(_hi2c) != HAL_I2C_STATE_READY) 
+    // {
+    //     HAL_I2C_DeInit(_hi2c);
+    //     HAL_I2C_Init(_hi2c);
+    // }
+    
     switch(_rxMode)
     {
         case WIRE_MODE_BLOCK:
@@ -498,6 +512,20 @@ int TwoWire::readSlave()
     }
 
     return -1;  // No data to read
+}
+
+bool TwoWire::IsDeviceReady(uint8_t address)
+{
+    if (HAL_I2C_IsDeviceReady(_hi2c, address << 1 , 3, 2) != HAL_OK) 
+    {
+        return false;
+    }
+    return true;
+}
+
+HAL_I2C_StateTypeDef TwoWire::GetState(void)
+{
+    return HAL_I2C_GetState(_hi2c);
 }
 
 /**

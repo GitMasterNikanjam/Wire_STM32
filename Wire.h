@@ -285,6 +285,17 @@ public:
     /// @brief Return interrupt slaveRxCompleteFlag
     bool getSlaveRxCompleteFlag(void) { return _slaveRxCompleteFlag;};
 
+    /**
+     * @brief This function is used to check if a slave device is available on the I2C bus before initiating communication. 
+     * This helps prevent HAL_BUSY errors or failed transactions.
+     */
+    bool IsDeviceReady(uint8_t address);
+
+    /**
+     * @brief Check I2C State.
+     */
+    HAL_I2C_StateTypeDef GetState(void);
+
 private:
 
     /**
