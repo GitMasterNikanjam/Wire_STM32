@@ -136,12 +136,6 @@ uint8_t TwoWire::endTransmission()
     {
         return 4;
     }
-
-    // if (HAL_I2C_GetState(_hi2c) != HAL_I2C_STATE_READY) 
-    // {
-    //     HAL_I2C_DeInit(_hi2c);
-    //     HAL_I2C_Init(_hi2c);
-    // }
     
     _transmitting = 0;
 
@@ -242,12 +236,6 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
     {
         quantity = (WIRE_BUFFER_LENGTH - _rxLength);
     }
-
-    // if (HAL_I2C_GetState(_hi2c) != HAL_I2C_STATE_READY) 
-    // {
-    //     HAL_I2C_DeInit(_hi2c);
-    //     HAL_I2C_Init(_hi2c);
-    // }
     
     switch(_rxMode)
     {
@@ -516,7 +504,7 @@ int TwoWire::readSlave()
 
 bool TwoWire::IsDeviceReady(uint8_t address)
 {
-    if (HAL_I2C_IsDeviceReady(_hi2c, address << 1 , 3, 2) != HAL_OK) 
+    if (HAL_I2C_IsDeviceReady(_hi2c, address << 1 , 3, 100) != HAL_OK) 
     {
         return false;
     }
