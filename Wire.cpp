@@ -33,6 +33,7 @@ bool TwoWire::begin()
     }
 
     HAL_I2C_DeInit(_hi2c);
+    HAL_Delay(10);
     if (HAL_I2C_Init(_hi2c) != HAL_OK)
     {
         errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";
