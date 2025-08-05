@@ -22,6 +22,9 @@ TwoWire::TwoWire(I2C_HandleTypeDef *i2cHandle)
     _slaveRxCompleteFlag = true;
     _slaveTxCompleteFlag = true;
     errorMessage = "";
+
+    _txMode = WIRE_MODE_BLOCK;
+    _rxMode = WIRE_MODE_BLOCK;
 }
 
 bool TwoWire::begin() 
@@ -57,6 +60,7 @@ bool TwoWire::begin(uint8_t address)
     _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
 
     HAL_I2C_DeInit(_hi2c);
+    HAL_Delay(10);
     if (HAL_I2C_Init(_hi2c) != HAL_OK)
     {
         errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";

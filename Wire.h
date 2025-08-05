@@ -42,7 +42,7 @@
 
 #define WIRE_MODE_BLOCK         0
 #define WIRE_MODE_INTERRUPT     1
-#define WIRE_MODE_DMA		2
+#define WIRE_MODE_DMA		    2
 
 // #define UNDER_DEVELOP
 
