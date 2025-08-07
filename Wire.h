@@ -1,7 +1,18 @@
 #pragma once
 
+/**
+ * @file Wire.h
+ * @brief Cross-platform I2C wrapper header for STM32 HAL.
+ *
+ * This file provides MCU selection and HAL includes based on user-defined macros.
+ * Ensure you provide a "mcu_select.h" header alongside this file to define your target MCU.
+ * Supported MCUs: STM32F1, STM32F4, STM32H7.
+ */
+
 // ##############################################################################################
-// MCU Select:
+// ===============================================================================
+// MCU Selection Configuration
+// ===============================================================================
 
 #include "mcu_select.h"
 
@@ -23,74 +34,108 @@
 
 
 // ###############################################################################################
+// ========================================================================
 // Include libraries:
+// ===============================================================================
 
 #if defined(STM32F1)
-#include "stm32f1xx_hal.h"
+#include "stm32f1xx_hal.h"          ///< HAL driver for STM32F1 series
 #elif defined(STM32F4)
-#include "stm32f4xx_hal.h"
+#include "stm32f4xx_hal.h"          ///< HAL driver for STM32F4 series
 #elif defined(STM32H7)
-#include "stm32h7xx_hal.h"
+#include "stm32h7xx_hal.h"          ///< HAL driver for STM32H7 series
+#endif
+#else
+#error "Unsupported MCU family. Please define STM32F1, STM32F4, or STM32H7 in mcu_select.h."
 #endif
 
-#include <string>
+#include <string>                   ///< Required for error messages and string processing
 
 // ###############################################################################################
-// Define Global Macros:
+// ===============================================================================
+// Global Macro Definitions
+// ===============================================================================
 
-#define WIRE_BUFFER_LENGTH 32  // Buffer size for data transfer
+/**
+ * @brief Buffer size used for I2C transmit and receive operations.
+ */
+#define WIRE_BUFFER_LENGTH      32  
 
+/**
+ * @brief I2C communication mode: blocking (polling) mode.
+ */
 #define WIRE_MODE_BLOCK         0
+
+/**
+ * @brief I2C communication mode: interrupt-based communication.
+ */
 #define WIRE_MODE_INTERRUPT     1
+
+/**
+ * @brief I2C communication mode: DMA-based communication.
+ */
 #define WIRE_MODE_DMA		    2
 
-// #define UNDER_DEVELOP
+// #define UNDER_DEVELOP  ///< Uncomment to enable experimental features
 
 // ##############################################################################################
 
 /**
  * @class TwoWire
- * @brief This class can handle I2C high level communication.
+ * @brief High-level I2C communication wrapper class for STM32 HAL.
+ *
+ * This class abstracts I2C operations including master and slave communication modes,
+ * and integrates error reporting and flexible initialization.
  */
 class TwoWire 
 {
 public:
 
-    /// @brief Last error occurred for the object.
+    /**
+     * @brief Last error message recorded during I2C communication.
+     */
     std::string errorMessage;
 
     /**
      * @brief Constructor.
-     * @param i2cHandle is a HAL I2C_HandleTypeDef pointer.
-     * @note - The i2cHandle can be defined outside of the Wire class and then used within the class.
-     * 
-     * @note - It is recommended that the I2C peripheral be set and initialized outside of the Wire class.
-     * 
-     * @note - The GPIO I2C peripheral configurations must be set outside of the Wire class.
+     *
+     * Initializes the TwoWire instance with a given I2C handle.
+     *
+     * @param i2cHandle Pointer to a pre-configured HAL I2C handle.
+     *
+     * @note It is recommended that:
+     * - The I2C peripheral (I2C1, I2C2, etc.) be initialized before calling this constructor.
+     * - GPIO pins for the I2C interface be configured before use.
      */
     TwoWire(I2C_HandleTypeDef *i2cHandle);
 
     /**
-     * @brief Initialize I2C as a master.
-     * @note This function initializes the Wire library and join the I2C bus as a controller or a peripheral. 
-     * This function should normally be called only once.
-     * @return true if succeeded.
+     * @brief Initializes the I2C interface in master mode.
+     *
+     * This method connects the controller (master) to the I2C bus.
+     * It should normally be called once during setup.
+     *
+     * @return true if initialization succeeded, false otherwise.
      */
     bool begin();     
 
     /**
-     * @brief Initialize I2C as a slave.
-     * @note This function initializes the Wire library and join the I2C bus as a controller or a peripheral. 
-     * This function should normally be called only once.
-     * @param address: the 7-bit slave address (optional); if not specified, join the bus as a controller device.
-     * @return true if succeeded.
+     * @brief Initializes the I2C interface in slave mode.
+     *
+     * Joins the I2C bus using the given 7-bit address. If no address is specified,
+     * it acts as a controller (master).
+     *
+     * @param address 7-bit I2C address to use in slave mode.
+     * @return true if initialization succeeded, false otherwise.
      */
     bool begin(uint8_t address);       
 
     /**
-     * @brief Disables the I2C bus and releases any allocated resources.
-     * Stops the Wire library functions from further use.
-     * @return true if succeeded.
+     * @brief Disables the I2C interface and releases associated resources.
+     *
+     * Stops the I2C operations and resets the internal state.
+     *
+     * @return true if deinitialization succeeded, false otherwise.
      */
     bool end(void);
 

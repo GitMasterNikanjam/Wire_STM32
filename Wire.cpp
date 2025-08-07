@@ -438,8 +438,13 @@ bool TwoWire::requestFromSlave(uint8_t quantity)
     }
 
     // Wait for the receive operation to complete
+    uint32_t start = HAL_GetTick();
     while (!_slaveRxCompleteFlag) {
         // Timeout or other mechanisms can be added here
+        if (HAL_GetTick() - start > _timeout) {
+            errorMessage = "Timeout in slave receive";
+            return false;
+        }
     }
 
     return true;
@@ -477,6 +482,12 @@ bool TwoWire::writeSlave(uint8_t data)
  */
 bool TwoWire::writeSlave(const uint8_t* data, size_t length)
 {
+    if (length > WIRE_BUFFER_LENGTH) 
+    {
+        errorMessage = "Slave TX length exceeds buffer size.";
+        return false;
+    }
+
     _slaveTxCompleteFlag = 0;
 
     if (HAL_I2C_Slave_Transmit_IT(_hi2c, (uint8_t*)data, length) != HAL_OK) {
