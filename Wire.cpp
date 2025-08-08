@@ -21,25 +21,33 @@ TwoWire::TwoWire(I2C_HandleTypeDef *i2cHandle)
     _rxCompleteFlag = true;
     _slaveRxCompleteFlag = true;
     _slaveTxCompleteFlag = true;
-    errorMessage = "";
+    errorCode = 0;
 
     _txMode = WIRE_MODE_BLOCK;
     _rxMode = WIRE_MODE_BLOCK;
+
+    _SCL_PORT = nullptr;
+    _SDA_PORT = nullptr;
+    _SCL_PIN = GPIO_PIN_0;
+    _SDA_PIN = GPIO_PIN_0;
+    
 }
 
 bool TwoWire::begin() 
 {
     if (_hi2c == nullptr) 
     {
-        errorMessage = "Error TwoWire: The I2C handle instance is null.";
+        // errorMessage = "The I2C handle instance is null.";
+        errorCode = 1;
         return false;
     }
 
     HAL_I2C_DeInit(_hi2c);
-    HAL_Delay(10);
+    HAL_Delay(2);
     if (HAL_I2C_Init(_hi2c) != HAL_OK)
     {
-        errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";
+        // errorMessage = "The HAL_I2C_Init() is not succeeded.";
+        errorCode = 2;
         return false;
     }
 		
@@ -50,7 +58,8 @@ bool TwoWire::begin(uint8_t address)
 {
     if (_hi2c == nullptr) 
     {
-        errorMessage = "Error TwoWire: The I2C handle instance is null.";
+        // errorMessage = "The I2C handle instance is null.";
+        errorCode = 1;
         return false;
     }
 
@@ -60,10 +69,11 @@ bool TwoWire::begin(uint8_t address)
     _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
 
     HAL_I2C_DeInit(_hi2c);
-    HAL_Delay(10);
+    HAL_Delay(2);
     if (HAL_I2C_Init(_hi2c) != HAL_OK)
     {
-        errorMessage = "Error TwoWire: The HAL_I2C_Init() is not succeeded.";
+        // errorMessage = "The HAL_I2C_Init() is not succeeded.";
+        errorCode = 2;
         return false;
     }
 
@@ -78,7 +88,8 @@ bool TwoWire::end(void)
     // Deinitialize the I2C peripheral
     if (HAL_I2C_DeInit(_hi2c) != HAL_OK)
     {
-        errorMessage = "Error TwoWire: end() is not succeeded.";
+        // errorMessage = "end() is not succeeded.";
+        errorCode = 1;
         return false;
     }
     return true;
@@ -88,8 +99,9 @@ bool TwoWire::setClock(uint32_t clock)
 {
     if(!((clock == 100000) || (clock == 400000)))
     {
-       errorMessage = "Error Wire: The clock value is not correct. try 100000 or 400000.";
-       return false; 
+        // errorMessage = "The clock value is not correct. try 100000 or 400000.";
+        errorCode = 1;
+        return false; 
     }
 
     _hi2c->Init.ClockSpeed = clock;
@@ -101,7 +113,8 @@ bool TwoWire::beginTransmission(uint8_t address)
     // Check if transmit channel be free
     if(_transmitting == 1)
     {
-        errorMessage = "Error TwoWire: I2C is transmitting. End transmitting before start new transmision.";
+        // errorMessage = "I2C is transmitting. End transmitting before start new transmision.";
+        errorCode = 1;
         return false;
     }
     // indicate that we are transmitting
@@ -254,7 +267,8 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
             }
             else
             {
-                errorMessage = "Error Wire: The requestFrom() is not succeeded.";
+                // errorMessage = "The requestFrom() is not succeeded.";
+                errorCode = 1;
                 return 0;
             }
         break;
@@ -270,7 +284,8 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
                 }
                 else
                 {
-                    errorMessage = "Error Wire: The requestFrom() is not succeeded.";
+                    // errorMessage = "The requestFrom() is not succeeded.";
+                    errorCode = 2;
                     return 0;
                 }
             }
@@ -283,7 +298,8 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
                 }
                 else
                 {
-                    errorMessage = "Error Wire: The requestFrom() is not succeeded.";
+                    // errorMessage = "The requestFrom() is not succeeded.";
+                    errorCode = 3;
                     return 0;
                 }
             }
@@ -304,7 +320,8 @@ uint8_t TwoWire::write(uint8_t data)
         // don't bother if buffer is full
         if(_txIndex >= WIRE_BUFFER_LENGTH)
         {
-            errorMessage = "Error TwoWire: Write() is not succeeded. TXbuffer is overflow.";
+            // errorMessage = "Write() is not succeeded. TXbuffer is overflow.";
+            errorCode = 1;
             return 0;
         }
         // put byte in tx buffer
@@ -315,7 +332,8 @@ uint8_t TwoWire::write(uint8_t data)
     }
     else
     {
-        errorMessage = "Error TwoWire: Master is not begin transmiting.";
+        // errorMessage = "Master is not begin transmiting.";
+        errorCode = 2;
         return 0;
     }
 
@@ -357,11 +375,66 @@ int TwoWire::read()
     return -1;  // No data left to read
 }
 
-void TwoWire::recovery(void)
-{
-    HAL_I2C_DeInit(_hi2c);
-    HAL_I2C_Init(_hi2c);
+bool TwoWire::recovery(void)
+{   
+    HAL_StatusTypeDef status = HAL_I2C_DeInit(_hi2c);
+    if (status != HAL_OK) return false;
+
+    HAL_Delay(5);
+
+    status = HAL_I2C_Init(_hi2c);
+    if (status != HAL_OK) return false;
+
     _timeoutFlag = false;
+    return true;
+}
+
+bool TwoWire::busRecoveryGPIO(void)
+{
+    if( (_SCL_PORT == nullptr) || (_SDA_PORT == nullptr) )
+    {
+        return false;
+    }
+
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    // 1. Reconfigure SCL and SDA as GPIO open-drain outputs
+    GPIO_InitStruct.Pin = _SCL_PIN; // SCL []
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(_SCL_PORT, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = _SDA_PIN; // SDA
+    HAL_GPIO_Init(_SDA_PORT, &GPIO_InitStruct); 
+
+    // 2. Toggle SCL manually and release SDA
+    for (int i = 0; i < 9; i++) {
+        HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_SET);   // SCL High
+        HAL_Delay(1);
+        HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_RESET); // SCL Low
+        HAL_Delay(1);
+    }
+
+    // Generate STOP condition manually
+    HAL_GPIO_WritePin(_SDA_PORT, _SDA_PIN, GPIO_PIN_RESET); // SDA Low
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_SET);   // SCL High
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(_SDA_PORT, _SDA_PIN, GPIO_PIN_SET);   // SDA High
+    HAL_Delay(1);
+
+    // 3. Re-init I2C
+    HAL_StatusTypeDef status = HAL_I2C_DeInit(_hi2c);
+    if (status != HAL_OK) return false;
+
+    HAL_Delay(5);
+
+    status = HAL_I2C_Init(_hi2c);
+    if (status != HAL_OK) return false;
+
+    _timeoutFlag = false;
+    return true;
 }
 
 void TwoWire::clearWireTimeoutFlag(void)
@@ -433,7 +506,8 @@ bool TwoWire::requestFromSlave(uint8_t quantity)
     _slaveRxCompleteFlag = 0;
 
     if (HAL_I2C_Slave_Receive_IT(_hi2c, _slaveBuffer, quantity) != HAL_OK) {
-        errorMessage = "Slave receive request failed.";
+        // errorMessage = "Slave receive request failed.";
+        errorCode = 1;
         return false;
     }
 
@@ -442,7 +516,8 @@ bool TwoWire::requestFromSlave(uint8_t quantity)
     while (!_slaveRxCompleteFlag) {
         // Timeout or other mechanisms can be added here
         if (HAL_GetTick() - start > _timeout) {
-            errorMessage = "Timeout in slave receive";
+            // errorMessage = "Timeout in slave receive";
+            errorCode = 2;
             return false;
         }
     }
@@ -461,7 +536,8 @@ bool TwoWire::writeSlave(uint8_t data)
     _slaveTxCompleteFlag = 0;
 
     if (HAL_I2C_Slave_Transmit_IT(_hi2c, &data, 1) != HAL_OK) {
-        errorMessage = "Slave transmit failed.";
+        // errorMessage = "Slave transmit failed.";
+        errorCode = 1;
         return false;
     }
 
@@ -484,14 +560,16 @@ bool TwoWire::writeSlave(const uint8_t* data, size_t length)
 {
     if (length > WIRE_BUFFER_LENGTH) 
     {
-        errorMessage = "Slave TX length exceeds buffer size.";
+        // errorMessage = "Slave TX length exceeds buffer size.";
+        errorCode = 1;
         return false;
     }
 
     _slaveTxCompleteFlag = 0;
 
     if (HAL_I2C_Slave_Transmit_IT(_hi2c, (uint8_t*)data, length) != HAL_OK) {
-        errorMessage = "Slave transmit multiple bytes failed.";
+        // errorMessage = "Slave transmit multiple bytes failed.";
+        errorCode = 2;
         return false;
     }
 
@@ -532,6 +610,14 @@ HAL_I2C_StateTypeDef TwoWire::GetState(void)
     return HAL_I2C_GetState(_hi2c);
 }
 
+void TwoWire::setGPIO(GPIO_TypeDef* SCLPort, uint16_t SCLPin, GPIO_TypeDef* SDAPort, uint16_t SDAPIn)
+{
+    _SCL_PORT = SCLPort;
+    _SCL_PIN = SCLPin;
+    _SDA_PORT = SDAPort;
+    _SDA_PIN = SDAPIn;
+}
+
 /**
  * Interrupt-based Transmission Callback (called when slave transmission is completed)
  */
@@ -557,3 +643,7 @@ void TwoWire::slaveAddrCallback(void)
     TwoWire *wireInstance = reinterpret_cast<TwoWire*>(_hi2c->Instance);
     // Implement address match behavior (e.g., reset buffers or indicate readiness)
 }
+
+
+
+
