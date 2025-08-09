@@ -42,11 +42,9 @@ bool TwoWire::begin()
         return false;
     }
 
-    HAL_I2C_DeInit(_hi2c);
-    HAL_Delay(2);
-    if (HAL_I2C_Init(_hi2c) != HAL_OK)
+    if(recovery() == false)
     {
-        // errorMessage = "The HAL_I2C_Init() is not succeeded.";
+        // errorMessage = "The recovery() is not succeeded.";
         errorCode = 2;
         return false;
     }
@@ -68,11 +66,9 @@ bool TwoWire::begin(uint8_t address)
     _hi2c->Init.OwnAddress1 = address;
     _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
 
-    HAL_I2C_DeInit(_hi2c);
-    HAL_Delay(2);
-    if (HAL_I2C_Init(_hi2c) != HAL_OK)
+    if(recovery() == false)
     {
-        // errorMessage = "The HAL_I2C_Init() is not succeeded.";
+        // errorMessage = "The recovery() is not succeeded.";
         errorCode = 2;
         return false;
     }
