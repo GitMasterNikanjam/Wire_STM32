@@ -3,6 +3,7 @@
 // Include libraries: 
 
 #include "Wire.h"
+#include <cstring>   // for memset
 
 TwoWire::TwoWire(I2C_HandleTypeDef *i2cHandle)
 {
@@ -42,8 +43,6 @@ bool TwoWire::begin()
         return false;
     }
 
-    busRecoveryGPIO();
-
     if(recovery() == false)
     {
         // errorMessage = "The recovery() is not succeeded.";
@@ -51,6 +50,13 @@ bool TwoWire::begin()
         return false;
     }
 		
+    // If GPIO pins were provided, try to free a stuck bus,
+    // but don't treat "no GPIO set" as a failure.
+    if ((_SCL_PORT != nullptr) && (_SDA_PORT != nullptr))
+    {
+        (void)busRecoveryGPIO(); // best-effort; ignore result
+    }
+
     return true;
 }
 
@@ -65,7 +71,7 @@ bool TwoWire::begin(uint8_t address)
 
     _slaveAddress = address;
 
-    _hi2c->Init.OwnAddress1 = address;
+    _hi2c->Init.OwnAddress1   = (uint32_t)(address << 1); // FIX: shift to bits 7:1
     _hi2c->Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
 
     if(recovery() == false)
@@ -168,21 +174,29 @@ uint8_t TwoWire::endTransmission()
             _txLength = 0;
         break;
         case WIRE_MODE_INTERRUPT:
-            if(_txCompleteFlag == true)
-            {
-                _txCompleteFlag = false;
-                ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer, _txLength);
-                _txLength = 0;
-            }
-            else
-            {
-                ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer + _txIndex - _txLength, _txLength);
-                _txLength = 0;
-            }
+            if (_txLength == 0) { return 0; } // nothing to send
+            _txCompleteFlag = false;
+            ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer, _txLength);
+            // Do not wipe indices here; let masterTxCpltCallback() clear them
+
+            // Legacy code:
+            // if(_txCompleteFlag == true)
+            // {
+            //     _txCompleteFlag = false;
+            //     ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer, _txLength);
+            //     _txLength = 0;
+            // }
+            // else
+            // {
+            //     ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer + _txIndex - _txLength, _txLength);
+            //     _txLength = 0;
+            // }
         break;
         case WIRE_MODE_DMA:
+            if (_txLength == 0) { return 0; }
             _txCompleteFlag = false;
-            ret = HAL_I2C_Master_Transmit_DMA(_hi2c, _txAddress, _txBuffer, _txIndex);
+            ret = HAL_I2C_Master_Transmit_DMA(_hi2c, _txAddress, _txBuffer, _txLength);
+            // Let DMA complete callback clear indices
         break;
     }
 
@@ -552,7 +566,6 @@ void TwoWire::masterRxCpltCallback(void)
 {
     _rxCompleteFlag = true;  // Set the reception flag
 }
-
 
 /**
  * @brief Initialize the I2C peripheral in Slave Mode with the given address.
