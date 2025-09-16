@@ -42,6 +42,8 @@ bool TwoWire::begin()
         return false;
     }
 
+    busRecoveryGPIO();
+
     if(recovery() == false)
     {
         // errorMessage = "The recovery() is not succeeded.";
@@ -93,14 +95,17 @@ bool TwoWire::end(void)
 
 bool TwoWire::setClock(uint32_t clock)
 {
-    if(!((clock == 100000) || (clock == 400000)))
-    {
-        // errorMessage = "The clock value is not correct. try 100000 or 400000.";
-        errorCode = 1;
-        return false; 
-    }
-
-    _hi2c->Init.ClockSpeed = clock;
+    #if defined(STM32H7)
+        // Typical Fast-mode 400k @ i2c kernel clock ~ 100 MHz (adjust to your clock tree!)
+        // Use CubeMX to generate exact Timing, or inject via a config hook.
+        if(clock == 100000)      _hi2c->Init.Timing = 0x00C0EAFF; // example value
+        else if(clock == 400000) _hi2c->Init.Timing = 0x20303E5D; // example value
+        else { errorCode=1; return false; }
+    #elif defined(STM32F4) || defined(STM32F1)
+        if(clock!=100000 && clock!=400000){ errorCode=1; return false; }
+        _hi2c->Init.ClockSpeed = clock;
+    #endif
+    
     return true;
 }
 
@@ -144,14 +149,14 @@ bool TwoWire::beginTransmission(uint8_t address)
 
 uint8_t TwoWire::endTransmission() 
 {
-    HAL_StatusTypeDef ret;
-
     if(_transmitting == 0)
     {
         return 4;
     }
     
     _transmitting = 0;
+
+    HAL_StatusTypeDef ret = HAL_ERROR;
 
     switch(_txMode)
     {
@@ -171,13 +176,13 @@ uint8_t TwoWire::endTransmission()
             }
             else
             {
-                _txCompleteFlag = false;
                 ret = HAL_I2C_Master_Transmit_IT(_hi2c, _txAddress, _txBuffer + _txIndex - _txLength, _txLength);
                 _txLength = 0;
             }
         break;
         case WIRE_MODE_DMA:
-
+            _txCompleteFlag = false;
+            ret = HAL_I2C_Master_Transmit_DMA(_hi2c, _txAddress, _txBuffer, _txIndex);
         break;
     }
 
@@ -191,6 +196,7 @@ uint8_t TwoWire::endTransmission()
         if(_resetWithTimeout == true)
         {
             recovery();
+            busRecoveryGPIO();
         }
         _timeoutFlag = true;
         return 5; // Timeout
@@ -301,7 +307,17 @@ uint8_t TwoWire::requestFrom(uint8_t address, uint8_t quantity)
             }
         break;
         case WIRE_MODE_DMA:
-
+            _rxCompleteFlag = false;
+            if (HAL_I2C_Master_Receive_DMA(_hi2c, (address<<1), _rxBuffer, quantity) == HAL_OK)
+            {
+                _rxLength = quantity;
+                // user can poll getRxCompleteFlag()
+            } 
+            else 
+            {
+                errorCode = 4;
+                return 0;
+            }
         break;
     }
 
@@ -357,6 +373,23 @@ uint8_t TwoWire::write(const uint8_t* data, uint8_t quantity)
     return quantity;
 }
 
+HAL_StatusTypeDef TwoWire::writeReg8(uint8_t dev7, uint8_t reg, const uint8_t* data, size_t len){
+  return HAL_I2C_Mem_Write(_hi2c, dev7<<1, reg, I2C_MEMADD_SIZE_8BIT,
+                           const_cast<uint8_t*>(data), len, _timeout);
+}
+HAL_StatusTypeDef TwoWire::readReg8(uint8_t dev7, uint8_t reg, uint8_t* data, size_t len){
+  return HAL_I2C_Mem_Read(_hi2c, dev7<<1, reg, I2C_MEMADD_SIZE_8BIT,
+                          data, len, _timeout);
+}
+HAL_StatusTypeDef TwoWire::writeReg16(uint8_t dev7, uint16_t reg, const uint8_t* data, size_t len){
+  return HAL_I2C_Mem_Write(_hi2c, dev7<<1, reg, I2C_MEMADD_SIZE_16BIT,
+                           const_cast<uint8_t*>(data), len, _timeout);
+}
+HAL_StatusTypeDef TwoWire::readReg16(uint8_t dev7, uint16_t reg, uint8_t* data, size_t len){
+  return HAL_I2C_Mem_Read(_hi2c, dev7<<1, reg, I2C_MEMADD_SIZE_16BIT,
+                          data, len, _timeout);
+}
+
 int TwoWire::available() 
 {
     return _rxLength - _rxIndex;
@@ -392,6 +425,9 @@ bool TwoWire::busRecoveryGPIO(void)
         return false;
     }
 
+    // Disable I2C peripheral to take control of pins
+    __HAL_I2C_DISABLE(_hi2c);
+
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
     // 1. Reconfigure SCL and SDA as GPIO open-drain outputs
@@ -402,23 +438,45 @@ bool TwoWire::busRecoveryGPIO(void)
     HAL_GPIO_Init(_SCL_PORT, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = _SDA_PIN; // SDA
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     HAL_GPIO_Init(_SDA_PORT, &GPIO_InitStruct); 
+
+    // Ensure SCL released HIGH first (thanks to pull-up)
+    HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_SET);
+    HAL_Delay(1);
 
     // 2. Toggle SCL manually and release SDA
     for (int i = 0; i < 9; i++) {
-        HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_SET);   // SCL High
-        HAL_Delay(1);
+
+        if (HAL_GPIO_ReadPin(_SDA_PORT, _SDA_PIN) == GPIO_PIN_SET)
+            break; // SDA already released
+
         HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_RESET); // SCL Low
         HAL_Delay(1);
+
+        HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_SET);   // SCL High
+        HAL_Delay(1); 
     }
 
-    // Generate STOP condition manually
-    HAL_GPIO_WritePin(_SDA_PORT, _SDA_PIN, GPIO_PIN_RESET); // SDA Low
-    HAL_Delay(1);
+    // Generate a STOP: SDA rising while SCL high
+    // Make SDA OD output temporarily to drive LOW->HIGH
+    GPIO_InitStruct.Pin   = _SDA_PIN;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_OD;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(_SDA_PORT, &GPIO_InitStruct);
+
+    // Drive SDA low while SCL high, then release
     HAL_GPIO_WritePin(_SCL_PORT, _SCL_PIN, GPIO_PIN_SET);   // SCL High
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(_SDA_PORT, _SDA_PIN, GPIO_PIN_RESET); // SDA Low
     HAL_Delay(1);
     HAL_GPIO_WritePin(_SDA_PORT, _SDA_PIN, GPIO_PIN_SET);   // SDA High
     HAL_Delay(1);
+
+    // Re-init I2C peripheral
+    // (Reconfigure alternate function, speed, etc. as in MX_I2C_Init)
+    __HAL_I2C_ENABLE(_hi2c);
 
     // 3. Re-init I2C
     HAL_StatusTypeDef status = HAL_I2C_DeInit(_hi2c);
@@ -467,11 +525,23 @@ void TwoWire::_clearBuffers()
     _timeoutFlag = false;
 }
 
+HAL_StatusTypeDef TwoWire::ackPoll(uint16_t dev7bit, uint32_t timeout_ms)
+{
+    uint32_t t0 = HAL_GetTick();
+    uint16_t devAddr = dev7bit << 1; // HAL expects 8-bit address (7-bit << 1)
+    while ((HAL_GetTick() - t0) < timeout_ms)
+    {
+        if (HAL_I2C_IsDeviceReady(_hi2c, devAddr, 1, 2) == HAL_OK) return HAL_OK;
+    }
+    return HAL_TIMEOUT;
+}
+
 /**
  * Interrupt-based Transmission Callback (to be called when transmission is completed)
  */
 void TwoWire::masterTxCpltCallback(void)
 {
+    _txLength = _txIndex = 0;
     _txCompleteFlag = true;  // Set the transmission flag
 }
 

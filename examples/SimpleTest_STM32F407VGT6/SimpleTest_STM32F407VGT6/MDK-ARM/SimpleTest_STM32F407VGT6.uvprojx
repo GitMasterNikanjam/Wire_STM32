@@ -511,6 +511,16 @@
           </Files>
         </Group>
         <Group>
+          <GroupName>Libraries/Wire</GroupName>
+          <Files>
+            <File>
+              <FileName>Wire.cpp</FileName>
+              <FileType>8</FileType>
+              <FilePath>..\..\..\..\Wire.cpp</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
           <GroupName>::CMSIS</GroupName>
         </Group>
       </Groups>
